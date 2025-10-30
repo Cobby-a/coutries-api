@@ -23,19 +23,13 @@ class CountrySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'estimated_gdp', 'last_refreshed_at']
 
     def validate(self, data):
-        """
-        Validate that required fields are present
-        """
+        errors = {}
         if not data.get('name'):
-            raise serializers.ValidationError({
-                'name': 'is required'
-            })
-        
+            errors['name'] = 'is required'
         if not data.get('population'):
-            raise serializers.ValidationError({
-                'population': 'is required'
-            })
-        
+            errors['population'] = 'is required'
+        if errors:
+            raise serializers.ValidationError(errors)
         return data
 
 

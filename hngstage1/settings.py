@@ -72,12 +72,6 @@ TEMPLATES = [
 WSGI_APPLICATION = 'hngstage1.wsgi.application'
 
 
-REST_FRAMEWORK = {
-    'EXCEPTION_HANDLER': 'countries.exceptions.custom_exception_handler',
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 50,
-}
-
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
@@ -86,6 +80,11 @@ DATABASES = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
+}
+
+
+REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'countries.exceptions.custom_exception_handler',
 }
 
 

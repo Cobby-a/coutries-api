@@ -2,8 +2,7 @@ from rest_framework import status
 from rest_framework.generics import ListAPIView, RetrieveDestroyAPIView, CreateAPIView
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.exceptions import NotFound
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 from django.db.models import Q
 from .models import Country, RefreshStatus
 from .serializers import CountrySerializer, StatusResponseSerializer
@@ -12,21 +11,29 @@ import os
 from django.conf import settings
 
 
-class CountryRefreshView(CreateAPIView):
+class CountryRefreshView(APIView):
     """
     POST /countries/refresh
     Fetch all countries and exchange rates, then cache them in the database
     """
-    def create(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         try:
             countries_processed = CountryService.refresh_countries()
-            
             return Response({
                 'message': 'Countries refreshed successfully',
                 'countries_processed': countries_processed
             }, status=status.HTTP_200_OK)
-        
+
         except Exception as e:
+            # If failure contains external API info, return 503 per spec
+            err_text = str(e).lower()
+            if 'failed to fetch countries' in err_text or 'failed to fetch exchange rates' in err_text:
+                # consistent response body required by spec
+                return Response({
+                    'error': 'External data source unavailable',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
             return Response({
                 'error': 'Failed to refresh countries',
                 'details': str(e)
@@ -72,35 +79,30 @@ class CountryListView(ListAPIView):
                 queryset = queryset.order_by('population')
             elif sort_param == 'population_desc':
                 queryset = queryset.order_by('-population')
-        else:
-            # Default ordering
-            queryset = queryset.order_by('id')
 
         return queryset
 
 
-class CountryDetailView(RetrieveDestroyAPIView):
+class CountryDetailView(APIView):
     """
     GET /countries/:name - Get one country by name
     DELETE /countries/:name - Delete a country record
     """
-    serializer_class = CountrySerializer
-    lookup_field = 'name'
-    lookup_url_kwarg = 'name'
-
-    def get_queryset(self):
-        return Country.objects.all()
-
-    def get_object(self):
-        """
-        Override to perform case-insensitive lookup
-        """
-        name = self.kwargs.get('name')
+    def get(self, request, name, *args, **kwargs):
         try:
-            return Country.objects.get(name__iexact=name)
+            country = Country.objects.get(name__iexact=name)
+            serializer = CountrySerializer(country)
+            return Response(serializer.data, status=status.HTTP_200_OK)
         except Country.DoesNotExist:
-            from rest_framework.exceptions import NotFound
-            raise NotFound(detail={'error': f"Country '{name}' not found"})
+            return Response({'error': 'Country not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, name, *args, **kwargs):
+        try:
+            country = Country.objects.get(name__iexact=name)
+            country.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Country.DoesNotExist:
+            return Response({'error': 'Country not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
 class StatusView(APIView):
