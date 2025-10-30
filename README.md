@@ -6,14 +6,14 @@ A Django REST API that fetches country data and exchange rates, calculates estim
 
 ### 1. Clone and Navigate
 ```bash
-git clone <repository-url>
+git clone https://github.com/Cobby-a/coutries-api.git
 cd country_api
 ```
 
 ### 2. Create Virtual Environment
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+venv\Scripts\activate # On mac and linux: source venv/bin/activate  
 ```
 
 ### 3. Install Dependencies
