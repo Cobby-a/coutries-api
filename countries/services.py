@@ -50,8 +50,8 @@ class CountryService:
             return Decimal('0')
         
         random_multiplier = random.uniform(1000, 2000)
-        gdp = (population * random_multiplier) / float(exchange_rate)
-        return Decimal(str(round(gdp, 2)))
+        gdp = (Decimal(str(population)) * Decimal(str(random_multiplier))) / Decimal(str(exchange_rate))
+        return gdp.quantize(Decimal('0.01'))
 
     @staticmethod
     def extract_currency_code(currencies):
@@ -72,51 +72,59 @@ class CountryService:
         """
         Main method to fetch, process and store country data
         """
-        # Fetch data from external APIs
-        countries_data = CountryService.fetch_countries()
-        exchange_rates = CountryService.fetch_exchange_rates()
+        try:
+            # Fetch data from external APIs
+            countries_data = CountryService.fetch_countries()
+            exchange_rates = CountryService.fetch_exchange_rates()
+        except Exception as e:
+            raise Exception(f"Failed to fetch external API data: {str(e)}")
 
         countries_processed = 0
         now = timezone.now()
 
         for country_data in countries_data:
-            name = country_data.get('name')
-            if not name:
+            try:
+                name = country_data.get('name')
+                if not name:
+                    continue
+
+                capital = country_data.get('capital', '')
+                region = country_data.get('region', '')
+                population = country_data.get('population', 0)
+                flag_url = country_data.get('flag', '')
+                currencies = country_data.get('currencies', [])
+
+                # Extract currency code
+                currency_code = CountryService.extract_currency_code(currencies)
+
+                # Get exchange rate if currency exists
+                exchange_rate = None
+                estimated_gdp = Decimal('0')
+
+                if currency_code and currency_code in exchange_rates:
+                    exchange_rate = Decimal(str(exchange_rates[currency_code]))
+                    estimated_gdp = CountryService.calculate_gdp(population, exchange_rate)
+
+                # Update or create country record
+                Country.objects.update_or_create(
+                    name__iexact=name,
+                    defaults={
+                        'name': name,
+                        'capital': capital,
+                        'region': region,
+                        'population': population,
+                        'currency_code': currency_code,
+                        'exchange_rate': exchange_rate,
+                        'estimated_gdp': estimated_gdp,
+                        'flag_url': flag_url,
+                        'last_refreshed_at': now
+                    }
+                )
+                countries_processed += 1
+            except Exception as e:
+                # Log error but continue processing other countries
+                print(f"Error processing country {country_data.get('name', 'Unknown')}: {str(e)}")
                 continue
-
-            capital = country_data.get('capital', '')
-            region = country_data.get('region', '')
-            population = country_data.get('population', 0)
-            flag_url = country_data.get('flag', '')
-            currencies = country_data.get('currencies', [])
-
-            # Extract currency code
-            currency_code = CountryService.extract_currency_code(currencies)
-
-            # Get exchange rate if currency exists
-            exchange_rate = None
-            estimated_gdp = Decimal('0')
-
-            if currency_code and currency_code in exchange_rates:
-                exchange_rate = Decimal(str(exchange_rates[currency_code]))
-                estimated_gdp = CountryService.calculate_gdp(population, exchange_rate)
-
-            # Update or create country record
-            Country.objects.update_or_create(
-                name__iexact=name,
-                defaults={
-                    'name': name,
-                    'capital': capital,
-                    'region': region,
-                    'population': population,
-                    'currency_code': currency_code,
-                    'exchange_rate': exchange_rate,
-                    'estimated_gdp': estimated_gdp,
-                    'flag_url': flag_url,
-                    'last_refreshed_at': now
-                }
-            )
-            countries_processed += 1
 
         # Update refresh status
         RefreshStatus.objects.all().delete()
@@ -126,7 +134,10 @@ class CountryService:
         )
 
         # Generate summary image
-        CountryService.generate_summary_image()
+        try:
+            CountryService.generate_summary_image()
+        except Exception as e:
+            print(f"Warning: Failed to generate image: {str(e)}")
 
         return countries_processed
 
@@ -135,58 +146,62 @@ class CountryService:
         """
         Generate a summary image with country statistics
         """
-        # Get statistics
-        total_countries = Country.objects.count()
-        top_countries = Country.objects.order_by('-estimated_gdp')[:5]
-        refresh_status = RefreshStatus.objects.first()
-        last_refreshed = refresh_status.last_refreshed_at if refresh_status else timezone.now()
-
-        # Create image
-        img_width = 800
-        img_height = 600
-        img = Image.new('RGB', (img_width, img_height), color='white')
-        draw = ImageDraw.Draw(img)
-
-        # Try to use a better font, fallback to default
         try:
-            title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-            text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-            small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        except:
-            title_font = ImageFont.load_default()
-            text_font = ImageFont.load_default()
-            small_font = ImageFont.load_default()
+            # Get statistics
+            total_countries = Country.objects.count()
+            top_countries = Country.objects.order_by('-estimated_gdp')[:5]
+            refresh_status = RefreshStatus.objects.first()
+            last_refreshed = refresh_status.last_refreshed_at if refresh_status else timezone.now()
 
-        # Draw title
-        title = "Country Statistics Summary"
-        draw.text((50, 30), title, fill='black', font=title_font)
+            # Create image
+            img_width = 800
+            img_height = 600
+            img = Image.new('RGB', (img_width, img_height), color='white')
+            draw = ImageDraw.Draw(img)
 
-        # Draw total countries
-        y_position = 100
-        draw.text((50, y_position), f"Total Countries: {total_countries}", fill='blue', font=text_font)
+            # Try to use a better font, fallback to default
+            try:
+                title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+                text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+                small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+            except:
+                title_font = ImageFont.load_default()
+                text_font = ImageFont.load_default()
+                small_font = ImageFont.load_default()
 
-        # Draw top 5 countries
-        y_position += 60
-        draw.text((50, y_position), "Top 5 Countries by Estimated GDP:", fill='black', font=text_font)
-        
-        y_position += 40
-        for idx, country in enumerate(top_countries, 1):
-            gdp_formatted = f"{country.estimated_gdp:,.2f}"
-            text = f"{idx}. {country.name}: ${gdp_formatted}"
-            draw.text((70, y_position), text, fill='darkgreen', font=small_font)
-            y_position += 35
+            # Draw title
+            title = "Country Statistics Summary"
+            draw.text((50, 30), title, fill='black', font=title_font)
 
-        # Draw timestamp
-        y_position += 30
-        timestamp_text = f"Last Refreshed: {last_refreshed.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-        draw.text((50, y_position), timestamp_text, fill='gray', font=small_font)
+            # Draw total countries
+            y_position = 100
+            draw.text((50, y_position), f"Total Countries: {total_countries}", fill='blue', font=text_font)
 
-        # Create cache directory if it doesn't exist
-        cache_dir = os.path.join(settings.BASE_DIR, 'cache')
-        os.makedirs(cache_dir, exist_ok=True)
+            # Draw top 5 countries
+            y_position += 60
+            draw.text((50, y_position), "Top 5 Countries by Estimated GDP:", fill='black', font=text_font)
+            
+            y_position += 40
+            for idx, country in enumerate(top_countries, 1):
+                gdp_formatted = f"{float(country.estimated_gdp):,.2f}"
+                text = f"{idx}. {country.name}: ${gdp_formatted}"
+                draw.text((70, y_position), text, fill='darkgreen', font=small_font)
+                y_position += 35
 
-        # Save image
-        image_path = os.path.join(cache_dir, 'summary.png')
-        img.save(image_path)
+            # Draw timestamp
+            y_position += 30
+            timestamp_text = f"Last Refreshed: {last_refreshed.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            draw.text((50, y_position), timestamp_text, fill='gray', font=small_font)
 
-        return image_path
+            # Create cache directory if it doesn't exist
+            cache_dir = os.path.join(settings.BASE_DIR, 'cache')
+            os.makedirs(cache_dir, exist_ok=True)
+
+            # Save image
+            image_path = os.path.join(cache_dir, 'summary.png')
+            img.save(image_path)
+
+            return image_path
+        except Exception as e:
+            print(f"Error generating image: {str(e)}")
+            raise

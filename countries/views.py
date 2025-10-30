@@ -2,7 +2,8 @@ from rest_framework import status
 from rest_framework.generics import ListAPIView, RetrieveDestroyAPIView, CreateAPIView
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import FileResponse, Http404
+from rest_framework.exceptions import NotFound
+from django.http import FileResponse
 from django.db.models import Q
 from .models import Country, RefreshStatus
 from .serializers import CountrySerializer, StatusResponseSerializer
@@ -71,6 +72,9 @@ class CountryListView(ListAPIView):
                 queryset = queryset.order_by('population')
             elif sort_param == 'population_desc':
                 queryset = queryset.order_by('-population')
+        else:
+            # Default ordering
+            queryset = queryset.order_by('id')
 
         return queryset
 
@@ -95,7 +99,8 @@ class CountryDetailView(RetrieveDestroyAPIView):
         try:
             return Country.objects.get(name__iexact=name)
         except Country.DoesNotExist:
-            raise Http404(f"Country '{name}' not found")
+            from rest_framework.exceptions import NotFound
+            raise NotFound(detail={'error': f"Country '{name}' not found"})
 
 
 class StatusView(APIView):
